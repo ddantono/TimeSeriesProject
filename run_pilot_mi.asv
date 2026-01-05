@@ -1,0 +1,87 @@
+clear; clc;
+
+C = config();
+el1 = aem_to_electrode(C.AEM1);
+savePrefix = sprintf('AEM%d_el%d', C.AEM1, el1);
+
+pilotFile = fullfile(C.outDir, sprintf('Pilot6_%s.mat', savePrefix));
+assert(isfile(pilotFile), 'Missing pilot file: %s', pilotFile);
+
+S = load(pilotFile, 'pilot');
+pilot = S.pilot;
+
+seriesList = {
+    pilot.P120.pre,  'P120_pre'
+    pilot.P120.post, 'P120_post'
+    pilot.P180.pre,  'P180_pre'
+    pilot.P180.post, 'P180_post'
+    pilot.P240.pre,  'P240_pre'
+    pilot.P240.post, 'P240_post'
+};
+
+taus = 1:20;     % για visualization
+nBins = 16;      % safe default
+
+MI_curves = struct();
+MI_saved = NaN(1, 6);
+figure('Name','Pilot MI(tau) curves');
+hold on; grid on;
+xlabel('\tau (lag)'); ylabel('MI(\tau) (nats)');
+title(sprintf('Pilot 6 Mutual Information curves | %s', savePrefix));
+
+for sIdx = 1:size(seriesList,1)
+    x = seriesList{sIdx,1};
+    name = seriesList{sIdx,2};
+
+    MI = mi_delay_hist(x, taus, nBins);
+
+    % --- first local minimum lag of MI(tau) (tau*) ---
+    % local min at k if MI(k) < MI(k-1) and MI(k) < MI(k+1)
+    tauStar = NaN;
+    
+    for k = 2:(numel(MI)-1)
+        if MI(k) < MI(k-1) && MI(k) < MI(k+1)
+            tauStar = taus(k);
+            break;
+        end
+    end
+    
+    MI_curves(sIdx).tauStar = tauStar;
+
+
+    MI_curves(sIdx).name = name;
+    MI_curves(sIdx).taus = taus;
+    MI_curves(sIdx).MI = MI;
+    MI_curves(sIdx).MI1 = MI(1);   % <<< αυτό είναι το SAFE scalar μέτρο
+
+    plot(taus, MI, '-o', 'DisplayName', sprintf('%s (MI1=%.3g)', name, MI(1)));
+end
+
+legend('Location','best');
+
+% Save figure + results
+figPath = fullfile(C.outDir, sprintf('Pilot6_MI_curves_%s.png', savePrefix));
+saveas(gcf, figPath);
+
+outFile = fullfile(C.outDir, sprintf('Nonlinear_MI_Pilot6_%s.mat', savePrefix));
+save(outFile, 'MI_curves', 'taus', 'nBins');
+
+fprintf('Saved MI pilot results: %s\n', outFile);
+fprintf('Saved MI figure: %s\n', figPath);
+
+% Print MI(1) summary
+fprintf('\nMI(1) values (nonlinear measure) for pilot 6:\n');
+for sIdx = 1:numel(MI_curves)
+    fprintf('  %-9s : MI(1)=%.6g\n', MI_curves(sIdx).name, MI_curves(sIdx).MI1);
+end
+
+fprintf('\nFirst local minimum lag tau* from MI(tau):\n');
+for sIdx = 1:numel(MI_curves)
+    ts = MI_curves(sIdx).tauStar;
+    if isnan(ts)
+        fprintf('  %-9s : tau* = (no clear local minimum in tau=1..%d)\n', ...
+            MI_curves(sIdx).name, max(taus));
+    else
+        fprintf('  %-9s : tau* = %d\n', MI_curves(sIdx).name, ts);
+    end
+end
